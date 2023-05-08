@@ -1,204 +1,180 @@
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <sys/wait.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-#include <string.h>
-#include <errno.h>
+#include <unistd.h>
 #include <dirent.h>
+#include <string.h>
+#include <stdbool.h> 
 
-#define MAX_OPTIONS 10
-#define BUFFER_SIZE 1024
+void print_access_rights(struct stat file) {
+    printf("USER:\n");
+    if (file.st_mode & S_IRUSR) {
+        printf("Read:YES\n");
+    } else {
+        printf("Read:NO\n");
+    }
+    if (file.st_mode & S_IWUSR) {
+        printf("Write:YES\n");
+    } else {
+        printf("Write:NO\n");
+    }
+    if (file.st_mode & S_IXUSR) {
+        printf("Execution:YES\n");
+    } else {
+        printf("Execution:NO\n");
+    }
 
-void print_access_rights(mode_t mode) {
-    printf("User:\n");
-    printf("Read - %s\n", (mode & S_IRUSR) ? "yes" : "no");
-    printf("Write - %s\n", (mode & S_IWUSR) ? "yes" : "no");
-    printf("Exec - %s\n", (mode & S_IXUSR) ? "yes" : "no");
-    printf("Group:\n");
-    printf("Read - %s\n", (mode & S_IRGRP) ? "yes" : "no");
-    printf("Write - %s\n", (mode & S_IWGRP) ? "yes" : "no");
-    printf("Exec - %s\n", (mode & S_IXGRP) ? "yes" : "no");
-    printf("Others:\n");
-    printf("Read - %s\n", (mode & S_IROTH) ? "yes" : "no");
-    printf("Write - %s\n", (mode & S_IWOTH) ? "yes" : "no");
-    printf("Exec - %s\n", (mode & S_IXOTH) ? "yes" : "no");
+    printf("\nGROUP:\n");
+    if (file.st_mode & S_IRGRP) {
+        printf("Read:YES\n");
+    } else {
+        printf("Read:NO\n");
+    }
+    if (file.st_mode & S_IWGRP) {
+        printf("Write:YES\n");
+    } else {
+        printf("Write:NO\n");
+    }
+    if (file.st_mode & S_IXGRP) {
+        printf("Execution:YES\n");
+    } else {
+        printf("Execution:NO\n");
+    }
+
+    printf("\nOTHERS:\n");
+    if (file.st_mode & S_IROTH) {
+        printf("Read:YES\n");
+    } else {
+        printf("Read:NO\n");
+    }
+    if (file.st_mode & S_IWOTH) {
+        printf("Write:YES\n");
+    } else {
+        printf("Write:NO\n");
+    }
+    if (file.st_mode & S_IXOTH) {
+        printf("Execution:YES\n");
+    } else {
+        printf("Execution:NO\n");
+    }
 }
 
-void handle_regular_file(char* path) {
-    struct stat st;
-    if (lstat(path, &st) == -1) {
-        perror("lstat");
-        exit(EXIT_FAILURE);
-    }
-    printf("Regular file: %s (%c)\n", path, (S_ISLNK(st.st_mode)) ? 'l' : '-');
-    char options[MAX_OPTIONS];
-    printf("Options: ");
-    scanf("%s", options);
-    int len = strlen(options);
-    if (strchr(options, '-') == NULL || len < 2) {
-        printf("Error: invalid option\n");
-        handle_regular_file(path);
-        return;
-    }
-    if (strchr(options, 'n') != NULL) {
-        printf("Name: %s\n", path);
-    }
-    if (strchr(options, 'd') != NULL) {
-        printf("Size: %ld bytes\n", st.st_size);
-    }
-    if (strchr(options, 'h') != NULL) {
-        printf("Hard link count: %ld\n", st.st_nlink);
-    }
-    if (strchr(options, 'm') != NULL) {
-        printf("Time of last modification: %s", ctime(&st.st_mtime));
-    }
-    if (strchr(options, 'a') != NULL) {
-        printf("Access rights:\n");
-        print_access_rights(st.st_mode);
-    }
-    if (strchr(options, 'l') != NULL && S_ISREG(st.st_mode)) {
-        printf("Enter symbolic link name: ");
-        char linkname[BUFFER_SIZE];
-        scanf("%s", linkname);
-        if (symlink(path, linkname) == -1) {
-            perror("symlink");
-            exit(EXIT_FAILURE);
-        }
-        printf("Symbolic link created: %s -> %s\n", linkname, path);
-    }
-    if (strchr(options, 'l') != NULL && S_ISLNK(st.st_mode)) {
-        char linkname[256];
-        ssize_t len = readlink(path, linkname, sizeof(linkname)-1);
-        if (len == -1) {
-            perror("readlink");
-            exit(EXIT_FAILURE);
-        }
-        linkname[len] = '\0';
-        printf("Name: %s\n", path);
-        printf("Symbolic Link: %s\n", linkname);
-        return;
-    }
-
-    printf("Invalid option for symbolic link\n");
+void get_link_name(char* file) {
+    char buffer[1024];
+    readlink(file, buffer, sizeof(buffer) - 1);
+    printf("The link name of %s is %s\n ", file, buffer);
 }
 
-void handle_directory(char *path, char *options) {
-    struct stat st;
-    if (stat(path, &st) == -1) {
-        perror("stat");
-        exit(EXIT_FAILURE);
-    }
+void get_link_size(char* file) {
+    char buffer[1024];
+    readlink(file, buffer, sizeof(buffer) - 1);
+    struct stat target;
+    lstat(buffer, &target);
+    printf("The link size of %s is %ld\n ", file, target.st_size);
+}
 
-    printf("Name: %s\n", path);
-    printf("Size: %ld bytes\n", st.st_size);
-    print_access_rights(path);
-
-    DIR *dirp;
-    struct dirent *dp;
+void count_c_files(char* dir_name) {
+    DIR* dir;
+    struct dirent* ent;
     int count = 0;
+    int len;
+    dir = opendir(dir_name);
 
-    dirp = opendir(path);
-    if (dirp == NULL) {
-        perror("opendir");
-        exit(EXIT_FAILURE);
-    }
-
-    while ((dp = readdir(dirp)) != NULL) {
-        if (strcmp(dp->d_name, ".") != 0 && strcmp(dp->d_name, "..") != 0) {
-            char filename[256];
-            sprintf(filename, "%s/%s", path, dp->d_name);
-            struct stat st;
-            if (stat(filename, &st) == -1) {
-                perror("stat");
-                exit(EXIT_FAILURE);
-            }
-
-            if (S_ISREG(st.st_mode)) {
-                if (strstr(dp->d_name, ".c") != NULL) {
-                    count++;
-                }
-            } else if (S_ISDIR(st.st_mode)) {
-                handle_directory(filename, "");
+    if (dir != NULL) {
+        while ((ent = readdir(dir)) != NULL) {
+            len = strlen(ent->d_name);
+            if (strcmp(ent->d_name + len - 2, ".c") == 0) {
+                count++;
             }
         }
+        closedir(dir);
+    } else {
+        printf("Error opening dir\n");
     }
 
-    closedir(dirp);
-    printf("Total number of files with the .c extension: %d\n", count);
+    printf("The number of c files is %d\n", count);
 }
 
-int main(int argc, char *argv[]) {
-    pid_t pid;
-    int i, status;
-
-    if (argc < 2) {
-        printf("Usage: %s <file/directory/symbolic_link> ...\n", argv[0]);
-        exit(EXIT_FAILURE);
+int is_c_file(char* file_name) {
+    int len = strlen(file_name);
+    if (strcmp(file_name + len - 2, ".c") == 0) {
+        return 1;
     }
-
-    for (i = 1; i < argc; i++) {
-        pid = fork();
-        if (pid == -1) {
-            perror("fork");
-            exit(EXIT_FAILURE);
-        } else if (pid == 0) {
-            // Child process
-            struct stat st;
-            if (lstat(argv[i], &st) == -1) {
-                perror("lstat");
-                exit(EXIT_FAILURE);
-            }
-
-            // Check file type and call appropriate function
-            if (S_ISREG(st.st_mode) && has_c_extension(argv[i])) {
-                handle_regular_file_with_c_extension(argv[i]);
-            } else if (S_ISREG(st.st_mode)) {
-                handle_regular_file(argv[i]);
-            } else if (S_ISDIR(st.st_mode)) {
-                handle_directory(argv[i]);
-                pid = fork();
-                if (pid == -1) {
-                    perror("fork");
-                    exit(EXIT_FAILURE);
-                } else if (pid == 0) {
-                    // Second child process for creating a file
-                    char filename[MAX_PATH_LEN];
-                    snprintf(filename, MAX_PATH_LEN, "%s_file.txt", argv[i]);
-                    char *args[] = {"touch", filename, NULL};
-                    execvp(args[0], args);
-                    perror("execvp");
-                    exit(EXIT_FAILURE);
-                } else {
-                    wait(&status);
-                    if (WIFEXITED(status)) {
-                        printf("File creation status: %d\n", WEXITSTATUS(status));
-                    } else {
-                        printf("File creation failed\n");
-                    }
-                }
-            } else if (S_ISLNK(st.st_mode)) {
-                handle_symbolic_link(argv[i]);
-            } else {
-                printf("Unknown file type\n");
-                exit(EXIT_FAILURE);
-            }
-
-            exit(EXIT_SUCCESS);
-        }
-    }
-
-    // Parent process waits for child processes to finish
-    for (i = 1; i < argc; i++) {
-        wait(&status);
-        if (WIFEXITED(status)) {
-            printf("Child process %d exited with status %d\n", i, WEXITSTATUS(status));
-        } else {
-            printf("Child process %d failed\n", i);
-        }
-    }
-
     return 0;
 }
 
+int main(int argc, char* argv[]) {
+    struct stat file_stat;
+    pid_t pid_switch, process_forkfile;
+
+
+    if (argc == 1) {
+        printf("Not multiple cmd agr");
+        return EXIT_FAILURE;
+    } else {
+        for (int i = 1; i < argc; i++) {
+            lstat(argv[i], &file_stat);
+            pid_t pid = fork();
+            if(pid<0){
+                perror("Forking error... Exiting ...\n");
+                exit(EXIT_FAILURE);
+            }
+            /*
+            if (S_ISREG(file_stat.st_mode))
+            {
+                if(is_c_file(argv[i])){
+                    printf("C file");
+                }
+                else{
+                printf("%s is a regular file\n", argv[i]);
+                print_access_rights(file_stat);
+                printf("\n");
+                }
+             } else if (S_ISDIR(file_stat.st_mode)){
+                printf("%s is a directory\n", argv[i]);
+                count_c_files(argv[i]);
+                DIR* dir = opendir(argv[i]);
+                struct dirent* ent;
+                            if (dir != NULL) {
+                while ((ent = readdir(dir)) != NULL) {
+                    char file_name[1024];
+                    strcpy(file_name, argv[i]);
+                    strcat(file_name, "/");
+                    strcat(file_name, ent->d_name);
+                    if (is_c_file(ent->d_name)) {
+                        process_forkfile = fork();
+                        if (process_forkfile == -1) {
+                            printf("Fork failed.\n");
+                            return EXIT_FAILURE;
+                        } else if (process_forkfile == 0) {
+                            printf("Child process %d: \n", getpid());
+                            printf("%s is a C file.\n", file_name);
+                            printf("The link name and size of %s are: \n", file_name);
+                            get_link_name(file_name);
+                            get_link_size(file_name);
+                            printf("\n");
+                            exit(EXIT_SUCCESS);
+                        } else {
+                            wait(100);
+                        }
+                    }
+                }
+                closedir(dir);
+            } else {
+                printf("Error opening dir\n");
+            }
+        } else if (S_ISLNK(file_stat.st_mode)) {
+            printf("%s is a symbolic link\n", argv[i]);
+            printf("The link name and size of %s are: \n", argv[i]);
+            get_link_name(argv[i]);
+            get_link_size(argv[i]);
+            printf("\n");
+        } else {
+            printf("%s is neither a regular file, directory, nor a symbolic link\n", argv[i]);
+        }
+        */
+    }
+}
+return EXIT_SUCCESS;
+}
