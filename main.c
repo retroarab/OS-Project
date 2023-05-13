@@ -169,15 +169,23 @@ void handle_non_c_file(char* name){
 }
 
 void handle_directory(char *name) {
+    char dirName[4096];
     char dirPath[4096];
-    snprintf(dirPath, sizeof(dirPath), "%s/", name);
-
-    // create the directory with the specified permissions
-    if (mkdir(dirPath, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_ISVTX | S_IXOTH) < 0) {
-        perror("mkdir");
-        exit(1);
+    strcpy(dirName, name);
+    strcpy(dirPath, name);
+    if (dirName[strlen(dirName)-1] == '/') {
+        dirName[strlen(dirName)-1] = '\0';
     }
+    strcat(dirName, "_file.txt");
+    strcat(dirPath, dirName);
+    execlp("touch", "touch", dirPath, (char *)0);
+    exit(0);
 }
+
+
+
+
+
 void handle_symbolic_link_option(char* name){
     // set user permissions to read, write, and execute
     chmod(name, S_IRWXU);
