@@ -13,14 +13,17 @@ void get_link_name(char* file);
 void get_link_size(char* file);
 char get_file_type(struct stat);
 void count_c_files(char* dir_name);
-int is_c_file(char* file_name);
 void reg_menu(struct stat file_stat,char *name);
 void symbolic_menu(struct stat file_stat,char *name);
+void directory_menu(struct stat file_stat,char *name);
+void handle_non_c_file(char* name);
+void handle_c_file(char* name);
+
 
 
 int main(int argc, char* argv[]) {
     struct stat file_stat;
-    //pid_t pid_switch, process_forkfile;
+    int pfd[2];
 
     if (argc == 1) {
         printf("Not multiple cmd agr");
@@ -44,7 +47,7 @@ int main(int argc, char* argv[]) {
                         reg_menu(file_stat, argv[i]);
                         break;
                     case 'd':
-                        //  directory_menu();
+                             directory_menu(file_stat,argv[i]);
                         break;
                     case 's':
                         symbolic_menu(file_stat,argv[i]);
@@ -59,25 +62,30 @@ int main(int argc, char* argv[]) {
                 exit(EXIT_SUCCESS);
             }else{
                 // Create child process to handle C files or directories
+                printf("HERE");
                 pid_t pid2 = fork();
                 if (pid2 < 0) {
                     perror("fork");
                     exit(EXIT_FAILURE);
                 }else if(pid2==0){
-
+                    if(pipe(pfd)<0){
+                        printf("The pipe was created");
+                        exit(1);
+                    }
                     switch (get_file_type(file_stat)) {
+
                         case 'r':
                             if (strstr(argv[i], ".c") != NULL) {
-                                //  handle_c_file(argv[i]);
+                                  handle_c_file(argv[i]);
                             } else {
-                                //   handle_non_c_file(argv[i]);
+                                      handle_non_c_file(argv[i]);
                             }
                             break;
                         case 'd':
-                            //  handle_directory(argv[i]);
+                              //  handle_directory(argv[i]);
                             break;
                         case 's':
-                            //handle_symbolic_link_option(argv[i], 'l');
+                               // handle_symbolic_link_option(argv[i], 'l');
                             break;
                         default:
                             exit(EXIT_SUCCESS);
@@ -100,6 +108,12 @@ int main(int argc, char* argv[]) {
     }
     return EXIT_SUCCESS;
 }
+
+
+void handle_non_c_file(char* name){
+    execlp("wc", "wc", "-l", name, (char *)0);
+}
+
 
 void print_access_rights(struct stat file) {
     printf("USER:\n");
@@ -189,16 +203,9 @@ void count_c_files(char* dir_name) {
 
     printf("The number of c files is %d\n", count);
 }
-int is_c_file(char* file_name) {
-    int len = strlen(file_name);
-    if (strcmp(file_name + len - 2, ".c") == 0) {
-        return 1;
-    }
-    return 0;
-}
+
 
 void symbolic_menu(struct stat file_stat,char* name) {
-    char link_name[100];
     char input[32];
     printf("B) Symbolic file:\n");
     printf("\t-n: name\n");
@@ -289,6 +296,40 @@ void reg_menu(struct stat file_stat,char* name) {
         }
     }
 }
+
+
+void directory_menu(struct stat file_stat,char* name) {
+    char input[32];
+    printf("C) Directory:\n");
+    printf("\t-n: name\n");
+    printf("\t-d: size of directory\n");
+    printf("\t-c: total number of files with the .c extension\n");
+    printf("\t-a: access rights\n");
+
+    printf("Enter your choice: \n");
+    fgets(input,sizeof(input),stdin);
+
+    printf("\nYOUR OPTION: %s\n", input);
+    for(int i = 0; i < strlen(input); i++){
+        switch (input[i]) {
+            case 'n':
+                printf("Directory name is : %s \n",name);
+                break;
+            case 'd':
+                printf("Size of directory is : %ld \n",file_stat.st_size);
+                break;
+            case 'a':
+                print_access_rights(file_stat);
+                break;
+            case 'c':
+                count_c_files(name);
+                break;
+            default:
+                //printf("Invalid input. Please try again.\n");
+                break;
+        }
+    }
+}
 char get_file_type(struct stat file_stat) {
     /*struct stat sb;
 
@@ -307,4 +348,9 @@ char get_file_type(struct stat file_stat) {
     } else {
         return 'u'; // unknown file type
     }
+}
+
+void handle_c_file(char* name){
+    execlp("bash", "bash", "script5.sh", name, (char *)0);
+
 }
