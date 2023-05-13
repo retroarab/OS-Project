@@ -18,7 +18,8 @@ void symbolic_menu(struct stat file_stat,char *name);
 void directory_menu(struct stat file_stat,char *name);
 void handle_non_c_file(char* name);
 void handle_c_file(char* name);
-
+void handle_symbolic_link_option(char *name);
+void handle_directory(char *name);
 
 
 int main(int argc, char* argv[]) {
@@ -34,12 +35,13 @@ int main(int argc, char* argv[]) {
 
         for (int i = 1; i < argc; i++) {
             pid_t pid = fork();
+            lstat(argv[i], &file_stat);
+
             if(pid<0){
                 perror("Forking error... Exiting ...\n");
                 exit(EXIT_FAILURE);
             }else if(pid==0){
 
-                lstat(argv[i], &file_stat);
 
                 switch (get_file_type(file_stat)) {
                     case 'r':
@@ -47,7 +49,7 @@ int main(int argc, char* argv[]) {
                         reg_menu(file_stat, argv[i]);
                         break;
                     case 'd':
-                             directory_menu(file_stat,argv[i]);
+                        directory_menu(file_stat,argv[i]);
                         break;
                     case 's':
                         symbolic_menu(file_stat,argv[i]);
@@ -62,30 +64,30 @@ int main(int argc, char* argv[]) {
                 exit(EXIT_SUCCESS);
             }else{
                 // Create child process to handle C files or directories
-                printf("HERE");
+                if(pipe(pfd)<0){
+                    printf("The pipe was created");
+                    exit(1);
+                }
                 pid_t pid2 = fork();
                 if (pid2 < 0) {
                     perror("fork");
                     exit(EXIT_FAILURE);
                 }else if(pid2==0){
-                    if(pipe(pfd)<0){
-                        printf("The pipe was created");
-                        exit(1);
-                    }
                     switch (get_file_type(file_stat)) {
-
                         case 'r':
                             if (strstr(argv[i], ".c") != NULL) {
-                                  handle_c_file(argv[i]);
+                                close(pfd[0]);
+                                dup2(pfd[1], 1);
+                               handle_c_file(argv[i]);
                             } else {
-                                      handle_non_c_file(argv[i]);
+                                handle_non_c_file(argv[i]);
                             }
                             break;
                         case 'd':
-                              //  handle_directory(argv[i]);
+                              handle_directory(argv[i]);
                             break;
                         case 's':
-                               // handle_symbolic_link_option(argv[i], 'l');
+                             handle_symbolic_link_option(argv[i]);
                             break;
                         default:
                             exit(EXIT_SUCCESS);
@@ -97,6 +99,58 @@ int main(int argc, char* argv[]) {
                     waitpid(pid2, &status2, 0);
                     printf("The process with PID %d has ended with the exit code %d\n", pid2, status2);
 
+                }
+
+                switch (get_file_type(file_stat)){
+                    case 'r':
+                        if(strstr(argv[i], ".c") != NULL){
+                            close(pfd[1]);
+                            char ch[1];
+                            char string[255];
+                            int noOfErrors = 0, noOfWarnings = 0;
+                            int nrBytesRead=0;
+                            while(read(pfd[0],ch,1)>0){
+                                string[nrBytesRead]=ch[0];
+                                nrBytesRead++;
+                            }
+                            string[nrBytesRead]='\0';
+                            char *ptr;
+                            noOfErrors=strtol(string,&ptr,10);
+                            noOfWarnings= strtol(ptr,NULL,10);
+                            printf("\nNumber of Errors: %d\nNumber of Warnings: %d\n", noOfErrors, noOfWarnings);
+                            double score;
+                            if(noOfErrors > 0) {
+                                score = 1;
+                            } else{
+                                if(noOfWarnings == 0) {
+                                    score = 10;
+                                } else if(noOfWarnings > 10) {
+                                    score = 2;
+                                } else{
+                                    score = 2 + 8 * (10 - noOfWarnings) / 10.0;
+                                }
+                            }
+
+                            char scoreString[10];
+                            sprintf(scoreString, "%.2f", score);
+
+                            char fileName[52];
+                            sprintf(fileName, "%s:%s", argv[i], scoreString);
+
+                            FILE *fp = fopen("grades.txt", "a");
+                            if (fp == NULL) {
+                                perror("\nError opening file grades.txt\n");
+                                exit(1);
+                            }
+                            fprintf(fp, "%s\n", fileName);
+                            fclose(fp);
+
+                            printf("\nScore computed and saved in grades.txt.\n");
+                            close(pfd[0]);
+
+                        }break;
+                    default:
+                        exit(EXIT_SUCCESS);
                 }
 
                 waitpid(pid, &status, 0);
@@ -114,6 +168,26 @@ void handle_non_c_file(char* name){
     execlp("wc", "wc", "-l", name, (char *)0);
 }
 
+void handle_directory(char *name) {
+    char dirPath[4096];
+    snprintf(dirPath, sizeof(dirPath), "%s/", name);
+
+    // create the directory with the specified permissions
+    if (mkdir(dirPath, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_ISVTX | S_IXOTH) < 0) {
+        perror("mkdir");
+        exit(1);
+    }
+}
+void handle_symbolic_link_option(char* name){
+    // set user permissions to read, write, and execute
+    chmod(name, S_IRWXU);
+
+// set group permissions to read and write (no execute)
+    chmod(name, S_IRGRP | S_IWGRP);
+
+// remove all permissions for other users
+    chmod(name, 0);
+}
 
 void print_access_rights(struct stat file) {
     printf("USER:\n");
@@ -343,7 +417,6 @@ char get_file_type(struct stat file_stat) {
     } else if (S_ISDIR(file_stat.st_mode)) {
         return 'd'; // directory
     } else if (S_ISREG((file_stat.st_mode))) {
-        printf("EXPLAIN");
         return 'r'; // regular file
     } else {
         return 'u'; // unknown file type
@@ -351,6 +424,6 @@ char get_file_type(struct stat file_stat) {
 }
 
 void handle_c_file(char* name){
-    execlp("bash", "bash", "script5.sh", name, (char *)0);
+    execlp("bash", "bash", "script_c_file.sh", name, (char *)0);
 
 }
